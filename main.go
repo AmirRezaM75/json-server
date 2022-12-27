@@ -43,6 +43,10 @@ type RouteEntry struct {
 }
 
 func (e RouteEntry) match(r *http.Request) map[string]string {
+	if e.method != r.Method {
+		return nil
+	}
+
 	matches := e.path.FindStringSubmatch(r.URL.Path)
 
 	if matches == nil {
@@ -56,10 +60,7 @@ func (e RouteEntry) match(r *http.Request) map[string]string {
 	for i, match := range matches {
 		params[groupNames[i]] = match
 	}
-	/*
-	   if e.method != r.Method {
-	   		return nil
-	   	}*/
+
 	return params
 }
 
