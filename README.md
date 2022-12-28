@@ -22,6 +22,12 @@ Create ``api.json`` file with following structure:
       "status": 200,
       "path": "/users",
       "jsonPath": "./users.json"
+    },
+    {
+      "method": "POST",
+      "status": 201,
+      "path": "/users/:userId/comments",
+      "jsonPath": "./comment.json"
     }
   ]
 }
