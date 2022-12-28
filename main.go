@@ -1,10 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
+	"os"
 	"regexp"
+	"strconv"
 )
 
 type Router struct {
@@ -19,27 +24,32 @@ func (router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		ctx := context.WithValue(r.Context(), "params", params)
-		e.handlerFunc(w, r.WithContext(ctx))
+		controller(w, r.WithContext(ctx), e.response)
 		return
 	}
 
 	http.NotFound(w, r)
 }
 
-func (router *Router) Route(method string, path string, handlerFunc http.HandlerFunc) {
+func (router *Router) Route(method string, path string, response Response) {
 	entry := RouteEntry{
-		method:      method,
-		path:        regexp.MustCompile("^" + path + "$"),
-		handlerFunc: handlerFunc,
+		method:   method,
+		path:     regexp.MustCompile("^" + path + "$"),
+		response: response,
 	}
 
 	router.entries = append(router.entries, entry)
 }
 
+type Response struct {
+	status int
+	data   []byte
+}
+
 type RouteEntry struct {
-	method      string
-	path        *regexp.Regexp
-	handlerFunc http.HandlerFunc
+	method   string
+	path     *regexp.Regexp
+	response Response
 }
 
 func (e RouteEntry) match(r *http.Request) map[string]string {
@@ -64,31 +74,73 @@ func (e RouteEntry) match(r *http.Request) map[string]string {
 	return params
 }
 
-func indexUserHandler(w http.ResponseWriter, r *http.Request) {
-	_, _ = fmt.Fprintln(w, "IndexUserHandler")
+func controller(w http.ResponseWriter, r *http.Request, response Response) {
+	w.Header().Set("Accept", "application/json")
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.status)
+	_, _ = w.Write(response.data)
 }
 
-func getUserHandler(w http.ResponseWriter, r *http.Request) {
-	userId := URLParam(r, "UserId")
+type Options struct {
+	Port      int        `json:"port"`
+	Endpoints []Endpoint `json:"endpoints"`
+}
 
-	_, _ = fmt.Fprintln(w, "GetUserHandler "+userId)
+type Endpoint struct {
+	Method   string `json:"method"`
+	Status   int    `json:"status"`
+	Path     string `json:"path"`
+	JsonPath string `json:"jsonPath"`
 }
 
 func main() {
+	// bytes, err := ioutil.ReadFile("./api.json")
+	raw, err := os.Open("api.json")
+
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	var options Options
+
+	rawBytes, err := ioutil.ReadAll(raw)
+
+	err = json.Unmarshal(rawBytes, &options)
+
 	r := &Router{}
-	r.Route(http.MethodGet, "/users", indexUserHandler)
-	r.Route(http.MethodGet, `/users/(?P<UserId>\d+)`, getUserHandler)
-	fmt.Println("Listening at port 3000...")
-	_ = http.ListenAndServe(":3000", r)
+
+	for _, endpoint := range options.Endpoints {
+		file, err := os.Open(endpoint.JsonPath)
+
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		//_ = file.Close()
+
+		buf := new(bytes.Buffer)
+		_, _ = buf.ReadFrom(file)
+
+		s := buf.String()
+
+		b := []byte(s)
+
+		response := Response{
+			status: endpoint.Status,
+			data:   b,
+		}
+		r.Route(endpoint.Method, endpoint.Path, response)
+	}
+
+	port := strconv.Itoa(options.Port)
+	fmt.Println("Listening at port " + port)
+	_ = http.ListenAndServe(":"+port, r)
 }
 
-// URLParam extracts a parameter from the URL by name
 func URLParam(r *http.Request, name string) string {
 	ctx := r.Context()
-
-	// ctx.Value returns an `interface{}` type, so we
-	// also have to cast it to a map, which is the
-	// type we'll be using to store our parameters.
 	params := ctx.Value("params").(map[string]string)
 	return params[name]
 }
