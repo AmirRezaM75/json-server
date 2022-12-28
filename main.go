@@ -5,26 +5,51 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"regexp"
 	"strconv"
 )
 
+type Response struct {
+	status int
+	data   []byte
+}
+
+type RouteEntry struct {
+	method   string
+	path     *regexp.Regexp
+	response Response
+}
+
 type Router struct {
 	entries []RouteEntry
+}
+
+type Options struct {
+	Port      int        `json:"port"`
+	Endpoints []Endpoint `json:"endpoints"`
+}
+
+type Endpoint struct {
+	Method   string `json:"method"`
+	Status   int    `json:"status"`
+	Path     string `json:"path"`
+	JsonPath string `json:"jsonPath"`
 }
 
 func (router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for _, e := range router.entries {
 		params := e.match(r)
+
 		if params == nil {
 			continue
 		}
 
 		ctx := context.WithValue(r.Context(), "params", params)
+
 		controller(w, r.WithContext(ctx), e.response)
+
 		return
 	}
 
@@ -39,17 +64,6 @@ func (router *Router) Route(method string, path string, response Response) {
 	}
 
 	router.entries = append(router.entries, entry)
-}
-
-type Response struct {
-	status int
-	data   []byte
-}
-
-type RouteEntry struct {
-	method   string
-	path     *regexp.Regexp
-	response Response
 }
 
 func (e RouteEntry) match(r *http.Request) map[string]string {
@@ -81,56 +95,25 @@ func controller(w http.ResponseWriter, r *http.Request, response Response) {
 	_, _ = w.Write(response.data)
 }
 
-type Options struct {
-	Port      int        `json:"port"`
-	Endpoints []Endpoint `json:"endpoints"`
-}
-
-type Endpoint struct {
-	Method   string `json:"method"`
-	Status   int    `json:"status"`
-	Path     string `json:"path"`
-	JsonPath string `json:"jsonPath"`
-}
-
 func main() {
-	// bytes, err := ioutil.ReadFile("./api.json")
-	raw, err := os.Open("api.json")
-
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
+	raw := fileToBytes("api.json")
 
 	var options Options
 
-	rawBytes, err := ioutil.ReadAll(raw)
+	err := json.Unmarshal(raw, &options)
 
-	err = json.Unmarshal(rawBytes, &options)
+	if err != nil {
+		fmt.Println("Invalid JSON format.")
+	}
 
 	r := &Router{}
 
 	for _, endpoint := range options.Endpoints {
-		file, err := os.Open(endpoint.JsonPath)
-
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-
-		//_ = file.Close()
-
-		buf := new(bytes.Buffer)
-		_, _ = buf.ReadFrom(file)
-
-		s := buf.String()
-
-		b := []byte(s)
-
 		response := Response{
 			status: endpoint.Status,
-			data:   b,
+			data:   fileToBytes(endpoint.JsonPath),
 		}
+
 		r.Route(endpoint.Method, endpoint.Path, response)
 	}
 
@@ -139,8 +122,27 @@ func main() {
 	_ = http.ListenAndServe(":"+port, r)
 }
 
-func URLParam(r *http.Request, name string) string {
-	ctx := r.Context()
-	params := ctx.Value("params").(map[string]string)
-	return params[name]
+func fileToBytes(path string) []byte {
+	file, err := os.Open(path)
+
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+	}(file)
+
+	buf := new(bytes.Buffer)
+
+	_, _ = buf.ReadFrom(file)
+
+	s := buf.String()
+
+	return []byte(s)
 }
