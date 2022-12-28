@@ -18,7 +18,7 @@ type Response struct {
 
 type RouteEntry struct {
 	method   string
-	path     *regexp.Regexp
+	path     string
 	response Response
 }
 
@@ -57,9 +57,13 @@ func (router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (router *Router) Route(method string, path string, response Response) {
+
+	r := regexp.MustCompile(`:(\w+)`)
+	path = r.ReplaceAllString(path, "(?P<$1>\\w+)")
+
 	entry := RouteEntry{
 		method:   method,
-		path:     regexp.MustCompile("^" + path + "$"),
+		path:     path,
 		response: response,
 	}
 
@@ -71,7 +75,9 @@ func (e RouteEntry) match(r *http.Request) map[string]string {
 		return nil
 	}
 
-	matches := e.path.FindStringSubmatch(r.URL.Path)
+	path := regexp.MustCompile(e.path)
+
+	matches := path.FindStringSubmatch(r.URL.Path)
 
 	if matches == nil {
 		return nil
@@ -79,7 +85,7 @@ func (e RouteEntry) match(r *http.Request) map[string]string {
 
 	params := make(map[string]string)
 
-	groupNames := e.path.SubexpNames()
+	groupNames := path.SubexpNames()
 
 	for i, match := range matches {
 		params[groupNames[i]] = match
