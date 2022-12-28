@@ -75,7 +75,7 @@ func (e RouteEntry) match(r *http.Request) map[string]string {
 		return nil
 	}
 
-	path := regexp.MustCompile(e.path)
+	path := regexp.MustCompile("^" + e.path + "$")
 
 	matches := path.FindStringSubmatch(r.URL.Path)
 
